@@ -1,0 +1,9 @@
+# Binários
+server
+*.exe
+
+# Logs
+*.log
+
+# Ambiente
+.env

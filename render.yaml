@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: mini-estufa-api
+    runtime: go
+    buildCommand: go build -o server main.go
+    startCommand: ./server
+    envVars:
+      - key: PORT
+        generateValue: true
+    healthCheckPath: /health
+    autoDeploy: true
+
