@@ -32,15 +32,7 @@ type SensorData struct {
 	UmidadeSolo      int     `json:"umidade_solo"`       // Umidade do solo calibrada em %
 	UmidadeSoloBruto int     `json:"umidade_solo_bruto"` // Valor bruto do sensor ADC
 	StatusBomba      string  `json:"status_bomba"`       // "Bomba ativada" ou "Bomba desativada"
-}
-
-type DashboardData struct {
-	Timestamp    string  `json:"t"`     // Hora "HH:MM"
-	Temperatura  float64 `json:"temp"`  // Temperatura em °C
-	Umidade      float64 `json:"hum"`   // Umidade do ar em %
-	Luminosidade int     `json:"light"` // Luminosidade 0-100
-	UmidadeSolo  int     `json:"soil"`  // Umidade do solo em %
-	BombaAtiva   bool    `json:"bomba"` // Status da bomba como boolean
+	StatusLuz        string  `json:"status_luz"`         // "Luz ligada" ou "Luz desligada"
 }
 
 func main() {
@@ -153,8 +145,8 @@ func handleSensorPush(w http.ResponseWriter, r *http.Request) {
 	// Armazena como última leitura
 	lastReading = &data
 
-	log.Printf("🌱 Recebido da estufa: Temp=%.1f°C, Umidade=%.1f%%, Luz=%d, Solo=%d%%",
-		data.Temperatura, data.UmidadeAr, data.Luminosidade, data.UmidadeSolo)
+	log.Printf("🌱 Recebido da estufa: Temp=%.1f°C, Umidade=%.1f%%, Luz=%d, Solo=%d%%, StatusBomba=%s, StatusLuz=%s",
+		data.Temperatura, data.UmidadeAr, data.Luminosidade, data.UmidadeSolo, data.StatusBomba, data.StatusLuz)
 
 	// Envia para todos os dashboards conectados via WebSocket
 	broadcastToClients(data)
@@ -227,20 +219,6 @@ func generateMockData() SensorData {
 		UmidadeSolo:      37 + (now.Second() % 5),
 		UmidadeSoloBruto: 1670 + (now.Second() % 20),
 		StatusBomba:      "Bomba desativada",
-	}
-}
-
-func convertToDashboard(data SensorData) DashboardData {
-	// Extrai apenas hora e minuto
-	t, _ := time.Parse("02/01/2006 15:04:05", data.DataHora)
-	timeLabel := t.Format("15:04")
-
-	return DashboardData{
-		Timestamp:    timeLabel,
-		Temperatura:  data.Temperatura,
-		Umidade:      data.UmidadeAr,
-		Luminosidade: data.Luminosidade,
-		UmidadeSolo:  data.UmidadeSolo,
-		BombaAtiva:   data.StatusBomba == "Bomba ativada",
+		StatusLuz:        "Luz desligada",
 	}
 }
