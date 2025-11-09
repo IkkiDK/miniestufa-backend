@@ -2,11 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -23,6 +24,20 @@ var (
 	clientsMu   sync.Mutex
 	lastReading *SensorData
 )
+
+const (
+	maxRequestBodyBytes = 8 * 1024
+	maxLoggedBodyBytes  = 1024
+)
+
+func sanitizeForLog(content []byte) string {
+	for i, b := range content {
+		if b < 32 && b != '\n' && b != '\r' && b != '\t' {
+			content[i] = '.'
+		}
+	}
+	return string(content)
+}
 
 type SensorData struct {
 	Tipo         string  `json:"tipo"`         // Ex.: "leituras"
@@ -71,25 +86,35 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	remoteHost := r.RemoteAddr
+	if host, _, errSplit := net.SplitHostPort(remoteHost); errSplit == nil {
+		remoteHost = host
+	}
+	userAgent := r.Header.Get("User-Agent")
+	if userAgent == "" {
+		userAgent = "desconhecido"
+	}
+
 	// Registra o novo cliente
 	clientsMu.Lock()
 	clients[conn] = true
+	activeConnections := len(clients)
 	clientsMu.Unlock()
 
-	log.Printf("✅ Cliente conectado! Total: %d", len(clients))
+	log.Printf("🔗 Sessão WebSocket estabelecida | origem=%s | ua=%s | conexões=%d", remoteHost, userAgent, activeConnections)
 
 	// Se existe última leitura, envia imediatamente
 	if lastReading != nil {
 		jsonData, _ := json.Marshal(lastReading)
 		conn.WriteMessage(websocket.TextMessage, jsonData)
-		log.Println("📤 Última leitura enviada ao novo cliente")
+		log.Printf("↩️ Última leitura replicada para sessão recente | origem=%s", remoteHost)
 	}
 
 	// Mantém conexão aberta e aguarda desconexão
 	for {
 		_, _, err := conn.ReadMessage()
 		if err != nil {
-			log.Println("⚠️ Cliente desconectado:", err)
+			log.Printf("⚠️ Sessão WebSocket encerrada com erro | origem=%s | detalhe=%v", remoteHost, err)
 			break
 		}
 	}
@@ -97,9 +122,10 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	// Remove cliente quando desconectar
 	clientsMu.Lock()
 	delete(clients, conn)
+	activeConnections = len(clients)
 	clientsMu.Unlock()
 
-	log.Printf("🔌 Cliente removido. Total: %d", len(clients))
+	log.Printf("📴 Sessão WebSocket finalizada | origem=%s | conexões_ativas=%d", remoteHost, activeConnections)
 }
 
 func handleLatestReading(w http.ResponseWriter, r *http.Request) {
@@ -134,14 +160,31 @@ func handleSensorPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var data SensorData
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes))
+	if err != nil {
+		log.Printf("❌ Erro ao ler body da requisição (%s): %v", r.RemoteAddr, err)
+		http.Error(w, "Erro ao ler requisição", http.StatusBadRequest)
+		return
+	}
 
-	// Decodifica JSON recebido da estufa
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		log.Println("❌ Erro ao decodificar JSON:", err)
+	if len(bodyBytes) == 0 {
+		log.Printf("⚠️ Requisição vazia recebida da estufa (%s)", r.RemoteAddr)
+		http.Error(w, "Body vazio", http.StatusBadRequest)
+		return
+	}
+
+	var data SensorData
+	if err := json.Unmarshal(bodyBytes, &data); err != nil {
+		logBody := string(bodyBytes)
+		if len(logBody) > maxLoggedBodyBytes {
+			logBody = logBody[:maxLoggedBodyBytes] + "...(truncado)"
+		}
+		log.Printf("❌ JSON inválido recebido (%s): %v | Payload=%s", r.RemoteAddr, err, logBody)
 		http.Error(w, "JSON inválido", http.StatusBadRequest)
 		return
 	}
+
+	log.Printf("📥 Payload recebido da estufa (%s): %s", r.RemoteAddr, sanitizeForLog(bodyBytes))
 
 	// Armazena como última leitura
 	lastReading = &data
@@ -182,45 +225,5 @@ func broadcastToClients(data SensorData) {
 
 	if len(clients) > 0 {
 		log.Printf("📡 Broadcast enviado para %d cliente(s)", len(clients))
-	}
-}
-
-// Função para gerar dados simulados (APENAS PARA TESTE - pode comentar/remover)
-func generateMockData() SensorData {
-	now := time.Now()
-	dataHora := now.Format("02/01/2006 15:04:05")
-
-	hora := now.Hour()
-	isNoite := hora < 6 || hora > 18
-
-	tempBase := 19.0
-	if isNoite {
-		tempBase = 16.5
-	} else {
-		tempBase = 21.0
-	}
-
-	umidadeBase := 75.0
-	if isNoite {
-		umidadeBase = 83.0
-	} else {
-		umidadeBase = 65.0
-	}
-
-	luminosidade := 0
-	if !isNoite {
-		luminosidade = 75 + (hora%5)*3
-	}
-
-	return SensorData{
-		Tipo:         "leituras",
-		DataHora:     dataHora,
-		Temperatura:  tempBase + (float64(now.Second()%10) / 10.0),
-		UmidadeAr:    umidadeBase + (float64(now.Second()%5) / 5.0),
-		Luminosidade: luminosidade,
-		UmidadeSolo:  37 + (now.Second() % 5),
-		SoloBruto:    1670 + (now.Second() % 20),
-		StatusBomba:  "Bomba desativada",
-		StatusLuz:    "Luz desligada",
 	}
 }
