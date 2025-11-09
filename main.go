@@ -25,14 +25,15 @@ var (
 )
 
 type SensorData struct {
-	DataHora         string  `json:"data_hora"`          // Formato: "DD/MM/YYYY HH:MM:SS"
-	Temperatura      float64 `json:"temperatura"`        // Temperatura em °C
-	UmidadeAr        float64 `json:"umidade_ar"`         // Umidade do ar em %
-	Luminosidade     int     `json:"luminosidade"`       // Luminosidade 0-100
-	UmidadeSolo      int     `json:"umidade_solo"`       // Umidade do solo calibrada em %
-	UmidadeSoloBruto int     `json:"umidade_solo_bruto"` // Valor bruto do sensor ADC
-	StatusBomba      string  `json:"status_bomba"`       // "Bomba ativada" ou "Bomba desativada"
-	StatusLuz        string  `json:"status_luz"`         // "Luz ligada" ou "Luz desligada"
+	Tipo         string  `json:"tipo"`         // Ex.: "leituras"
+	DataHora     string  `json:"data_hora"`    // Formato: "DD/MM/YYYY HH:MM:SS"
+	Temperatura  float64 `json:"temperatura"`  // Temperatura em °C
+	UmidadeAr    float64 `json:"umidade_ar"`   // Umidade do ar em %
+	Luminosidade int     `json:"luminosidade"` // Luminosidade 0-100
+	UmidadeSolo  int     `json:"umidade_solo"` // Umidade do solo calibrada em %
+	SoloBruto    int     `json:"solo_bruto"`   // Valor bruto do sensor ADC
+	StatusBomba  string  `json:"status_bomba"` // "Bomba ativada" ou "Bomba desativada"
+	StatusLuz    string  `json:"status_luz"`   // "Luz ligada" ou "Luz desligada"
 }
 
 func main() {
@@ -145,8 +146,8 @@ func handleSensorPush(w http.ResponseWriter, r *http.Request) {
 	// Armazena como última leitura
 	lastReading = &data
 
-	log.Printf("🌱 Recebido da estufa: Temp=%.1f°C, Umidade=%.1f%%, Luz=%d, Solo=%d%%, StatusBomba=%s, StatusLuz=%s",
-		data.Temperatura, data.UmidadeAr, data.Luminosidade, data.UmidadeSolo, data.StatusBomba, data.StatusLuz)
+	log.Printf("🌱 Recebido da estufa: Tipo=%s, Data=%s, Temp=%.1f°C, Umidade=%.1f%%, Luz=%d, Solo=%d%% (Bruto=%d), StatusBomba=%s, StatusLuz=%s",
+		data.Tipo, data.DataHora, data.Temperatura, data.UmidadeAr, data.Luminosidade, data.UmidadeSolo, data.SoloBruto, data.StatusBomba, data.StatusLuz)
 
 	// Envia para todos os dashboards conectados via WebSocket
 	broadcastToClients(data)
@@ -212,13 +213,14 @@ func generateMockData() SensorData {
 	}
 
 	return SensorData{
-		DataHora:         dataHora,
-		Temperatura:      tempBase + (float64(now.Second()%10) / 10.0),
-		UmidadeAr:        umidadeBase + (float64(now.Second()%5) / 5.0),
-		Luminosidade:     luminosidade,
-		UmidadeSolo:      37 + (now.Second() % 5),
-		UmidadeSoloBruto: 1670 + (now.Second() % 20),
-		StatusBomba:      "Bomba desativada",
-		StatusLuz:        "Luz desligada",
+		Tipo:         "leituras",
+		DataHora:     dataHora,
+		Temperatura:  tempBase + (float64(now.Second()%10) / 10.0),
+		UmidadeAr:    umidadeBase + (float64(now.Second()%5) / 5.0),
+		Luminosidade: luminosidade,
+		UmidadeSolo:  37 + (now.Second() % 5),
+		SoloBruto:    1670 + (now.Second() % 20),
+		StatusBomba:  "Bomba desativada",
+		StatusLuz:    "Luz desligada",
 	}
 }
