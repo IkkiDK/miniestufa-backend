@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -39,16 +40,31 @@ func sanitizeForLog(content []byte) string {
 	return string(content)
 }
 
+func formatFloatWithUnit(value *float64, unit string) string {
+	if value == nil {
+		return "dado não recebido"
+	}
+	return fmt.Sprintf("%.1f%s", *value, unit)
+}
+
+func formatIntWithUnit(value *int, unit string) string {
+	if value == nil {
+		return "dado não recebido"
+	}
+	return fmt.Sprintf("%d%s", *value, unit)
+}
+
 type SensorData struct {
-	Tipo         string  `json:"tipo"`         // Ex.: "leituras"
-	DataHora     string  `json:"data_hora"`    // Formato: "DD/MM/YYYY HH:MM:SS"
-	Temperatura  float64 `json:"temperatura"`  // Temperatura em °C
-	UmidadeAr    float64 `json:"umidade_ar"`   // Umidade do ar em %
-	Luminosidade int     `json:"luminosidade"` // Luminosidade 0-100
-	UmidadeSolo  int     `json:"umidade_solo"` // Umidade do solo calibrada em %
-	SoloBruto    int     `json:"solo_bruto"`   // Valor bruto do sensor ADC
-	StatusBomba  string  `json:"status_bomba"` // "Bomba ativada" ou "Bomba desativada"
-	StatusLuz    string  `json:"status_luz"`   // "Luz ligada" ou "Luz desligada"
+	Tipo            string   `json:"tipo"`               // Ex.: "leituras"
+	DataHora        string   `json:"data_hora"`          // Formato: "DD/MM/YYYY HH:MM:SS"
+	Temperatura     *float64 `json:"temperatura"`        // Temperatura em °C (pode não ser enviada)
+	UmidadeAr       *float64 `json:"umidade_ar"`         // Umidade do ar em %
+	Luminosidade    *int     `json:"luminosidade"`       // Luminosidade 0-100
+	UmidadeSolo     *int     `json:"umidade_solo"`       // Umidade do solo calibrada em %
+	SoloBruto       *int     `json:"solo_bruto"`         // Valor bruto do sensor ADC
+	SoloBrutoLegacy *int     `json:"umidade_solo_bruto"` // Payload legado do bridge
+	StatusBomba     string   `json:"status_bomba"`       // "Bomba ativada" ou "Bomba desativada"
+	StatusLuz       string   `json:"status_luz"`         // "Luz ligada" ou "Luz desligada"
 }
 
 func main() {
@@ -184,13 +200,39 @@ func handleSensorPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Normalização para payloads legados que usam outras chaves
+	if data.SoloBruto == nil && data.SoloBrutoLegacy != nil && *data.SoloBrutoLegacy > 0 {
+		data.SoloBruto = data.SoloBrutoLegacy
+		data.SoloBrutoLegacy = nil
+	}
+	if data.Tipo == "" {
+		data.Tipo = "dado não recebido"
+	}
+	if data.DataHora == "" {
+		data.DataHora = "dado não recebido"
+	}
+	if data.StatusBomba == "" {
+		data.StatusBomba = "dado não recebido"
+	}
+	if data.StatusLuz == "" {
+		data.StatusLuz = "dado não recebido"
+	}
+
 	log.Printf("📥 Payload recebido da estufa (%s): %s", r.RemoteAddr, sanitizeForLog(bodyBytes))
 
 	// Armazena como última leitura
 	lastReading = &data
 
-	log.Printf("🌱 Recebido da estufa: Tipo=%s, Data=%s, Temp=%.1f°C, Umidade=%.1f%%, Luz=%d, Solo=%d%% (Bruto=%d), StatusBomba=%s, StatusLuz=%s",
-		data.Tipo, data.DataHora, data.Temperatura, data.UmidadeAr, data.Luminosidade, data.UmidadeSolo, data.SoloBruto, data.StatusBomba, data.StatusLuz)
+	log.Printf("🌱 Recebido da estufa: Tipo=%s, Data=%s, Temp=%s, Umidade=%s, Luz=%s, Solo=%s (Bruto=%s), StatusBomba=%s, StatusLuz=%s",
+		data.Tipo,
+		data.DataHora,
+		formatFloatWithUnit(data.Temperatura, "°C"),
+		formatFloatWithUnit(data.UmidadeAr, "%"),
+		formatIntWithUnit(data.Luminosidade, "%"),
+		formatIntWithUnit(data.UmidadeSolo, "%"),
+		formatIntWithUnit(data.SoloBruto, ""),
+		data.StatusBomba,
+		data.StatusLuz)
 
 	// Envia para todos os dashboards conectados via WebSocket
 	broadcastToClients(data)
